@@ -1,0 +1,21 @@
+# systemd unit for the Raspberry Pi. install-pi.sh fills in the user and paths.
+[Unit]
+Description=Lists & Boards
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__DIR__
+Environment=PORT=8080
+Environment=HOST=0.0.0.0
+Environment=LB_DATA=__DIR__/data/lists-boards.db
+# Uncomment to ask for a passphrase once per browser:
+# Environment=LB_PASSWORD=change-me
+ExecStart=__NODE__ --disable-warning=ExperimentalWarning server/server.js
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

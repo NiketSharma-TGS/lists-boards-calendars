@@ -1,0 +1,16 @@
+{
+  "name": "lists-boards-calendars",
+  "version": "0.1.0",
+  "description": "A self-hosted task manager: domains, lists and boards in one window, move rules, time blocks and a calm daily view.",
+  "type": "module",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server/server.js",
+    "demo": "node --disable-warning=ExperimentalWarning scripts/demo.js",
+    "test": "node --disable-warning=ExperimentalWarning --test"
+  }
+}
