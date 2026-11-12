@@ -83,9 +83,14 @@ export function fromMin(min) {
   return pad(Math.floor(m / 60)) + ':' + pad(m % 60);
 }
 
+let clock24 = true;
+export function setClock24(on) {
+  clock24 = on !== false;
+}
 export function fmtTime(hhmm) {
   if (!hhmm) return '';
   const [h, m] = hhmm.split(':').map(Number);
+  if (clock24) return pad(h) + ':' + pad(m);
   const ap = h < 12 ? 'AM' : 'PM';
   const h12 = h % 12 === 0 ? 12 : h % 12;
   return h12 + (m ? ':' + pad(m) : '') + ' ' + ap;

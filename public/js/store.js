@@ -2,7 +2,7 @@
 // server by revision number, plus the handful of selectors the views share.
 
 import { DEFAULT_SETTINGS, globalCompare, isOpen } from '/shared/logic.js';
-import { addDays, endOfMonth, todayIn } from '/shared/dates.js';
+import { addDays, endOfMonth, todayIn, setClock24 } from '/shared/dates.js';
 
 const COLLECTIONS = ['settings', 'domains', 'sections', 'blocks', 'rules', 'tasks', 'comments', 'labels', 'filters', 'timeblocks', 'occs', 'plans'];
 
@@ -48,6 +48,7 @@ function applyDelta(delta) {
   if (delta.rev > state.rev) state.rev = delta.rev;
   if (delta.today) state.today = delta.today;
   cache = new Map();
+  setClock24((state.docs.settings.get('main') || {}).clock24);
   notify();
 }
 

@@ -7,7 +7,7 @@ import { Icon, openMenu, askText, askConfirm, Empty } from './ui.js';
 import { TaskRow, TaskList, AddTask, openTask, getDragId, setDragId } from './tasks.js';
 import { addDays, addMonths, diffDays, dow, fmtDate, fmtDur, fmtLong, fmtTime, fromMin, startOfWeek, DAY_NAMES, DAY_SHORT, MONTH_NAMES, todayIn } from '/shared/dates.js';
 import { compileFilter } from '/shared/filter.js';
-import { isOpen } from '/shared/logic.js';
+import { isOpen, PRIORITY_COLORS } from '/shared/logic.js';
 import { LoadCard, NeedNotes, loadFor, openBlockForm, notifyDesktop } from './time.js';
 
 export const DOMAIN_COLORS = [
@@ -163,8 +163,7 @@ function DayGroup({ date, tasks }) {
 }
 
 // ---------- Calendar ----------
-export function CalendarView({ month: arg }) {
-  const month = /^\d{4}-\d{2}$/.test(arg || '') ? arg : state.today.slice(0, 7);
+export function MonthGrid({ month }) {
   const first = month + '-01';
   const gridStart = startOfWeek(first, sel.settings().weekEnd);
   const cells = [];
@@ -180,18 +179,11 @@ export function CalendarView({ month: arg }) {
     }
   }
   const cmp = sel.compare();
-  const [y, m] = month.split('-').map(Number);
   const firstDow = dow(gridStart);
-  return html`<div class="page wide">
-    <header class="page-head">
-      <div><h1>${MONTH_NAMES[m - 1]} ${y}</h1><div class="muted">Tasks by date, with your meetings and how full each day is. Drag a task to another day to move it.</div></div>
-      <div class="head-actions"><div class="seg"><button aria-label="Previous month" onClick=${() => go('calendar/' + addMonths(first, -1).slice(0, 7))}>‹</button><button onClick=${() => go('calendar')}>Today</button><button aria-label="Next month" onClick=${() => go('calendar/' + addMonths(first, 1).slice(0, 7))}>›</button></div></div>
-    </header>
-    <div class="cal-scroll"><div class="cal">
+  return html`<div class="cal-scroll"><div class="cal">
       <div class="cal-head">${[0, 1, 2, 3, 4, 5, 6].map((i) => html`<div key=${i}>${DAY_SHORT[(firstDow + i) % 7]}</div>`)}</div>
       <div class="cal-grid">${cells.slice(0, weeksShown * 7).map((d) => html`<${CalCell} key=${d} date=${d} dim=${d.slice(0, 7) !== month} tasks=${(byDay.get(d) || []).sort(cmp)} />`)}</div>
-    </div></div>
-  </div>`;
+    </div></div>`;
 }
 function CalCell({ date, dim, tasks }) {
   const [over, setOver] = useState(false);
@@ -202,12 +194,12 @@ function CalCell({ date, dim, tasks }) {
     onDragOver=${(e) => { if (getDragId()) { e.preventDefault(); setOver(true); } }}
     onDragLeave=${() => setOver(false)}
     onDrop=${(e) => { setOver(false); const id = getDragId(); if (!id) return; e.preventDefault(); setDragId(null); op('task.update', { id, patch: { due: date } }); }}>
-    <div class="cal-date"><button class="cal-num" title="Plan this day" onClick=${() => go('plan/' + date)}>${+date.slice(8)}</button>
+    <div class="cal-date"><button class="cal-num" title="Open this day" onClick=${() => go('plan/' + date)}>${+date.slice(8)}</button>
       ${load.totalMin ? html`<span class=${'cal-load' + (load.over ? ' over' : '')} title=${`Meetings ${fmtDur(load.meetingMin) || '0m'}, blocks ${fmtDur(load.blockMin) || '0m'}`}>${fmtDur(load.totalMin)}</span>` : null}</div>
     ${events.slice(0, 2).map((e) => html`<div class="cal-ev" key=${e.id} title=${e.title}>${e.allDay ? '' : fmtTime(fromMin(e.startMin)) + ' '}${e.title}</div>`)}
     ${events.length > 2 ? html`<div class="cal-ev">+${events.length - 2} more meetings</div>` : null}
     ${shown.map((t) => html`<button class="cal-task" key=${t.id} draggable="true" onDragStart=${(e) => { setDragId(t.id); e.dataTransfer.setData('text/plain', t.id); }} onDragEnd=${() => setDragId(null)} onClick=${() => openTask(t.id)} title=${t.title}>
-      <span class="dot" style=${{ background: sel.domain(t.domainId)?.color || 'var(--muted)' }}></span><span class="ellipsis">${t.deadline === date && t.due !== date ? 'Deadline: ' : ''}${t.title}</span></button>`)}
+      <span class="dot" style=${{ background: PRIORITY_COLORS[t.priority || 4] }}></span><span class="ellipsis">${t.deadline === date && t.due !== date ? 'Deadline: ' : ''}${t.dueTime && t.due === date ? fmtTime(t.dueTime) + ' ' : ''}${t.title}</span></button>`)}
     ${tasks.length > 4 ? html`<button class="cal-more" onClick=${() => go('search/' + encodeURIComponent(date))}>+${tasks.length - 4} more</button>` : null}
   </div>`;
 }
@@ -315,6 +307,18 @@ export function SettingsView() {
       location.reload();
     } catch (err) { toast('Restore failed: ' + err.message, { kind: 'error' }); }
   };
+  const importFile = async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const out = await op('import.merge', JSON.parse(await file.text()));
+      const extra = out.notConverted.length ? ` ${out.notConverted.length} repeat rule${out.notConverted.length === 1 ? '' : 's'} could not be converted; the original wording is in those tasks' descriptions.` : '';
+      toast(`Imported ${out.added} task${out.added === 1 ? '' : 's'}${out.skipped ? `, ${out.skipped} were already here` : ''}.${extra}`, { kind: 'ok', ms: 12000 });
+    } catch (err) {
+      if (err instanceof SyntaxError) toast('That file is not valid JSON.', { kind: 'error' });
+    }
+  };
   return html`<div class="page">
     <header class="page-head"><div><h1>Settings</h1></div></header>
 
@@ -340,7 +344,8 @@ export function SettingsView() {
         <label class="field"><span>Default block (minutes)</span><input type="number" min="10" step="5" value=${s.defaultBlockLen} onChange=${(e) => save({ defaultBlockLen: +e.target.value || 60 })} /></label>
       </div>
       <div class="row3">
-        <label class="field"><span>Planner starts</span><input type="time" value=${s.dayStart} onChange=${(e) => save({ dayStart: e.target.value })} /></label>
+        <label class="field"><span>Clock</span><select value=${s.clock24 === false ? '12' : '24'} onChange=${(e) => save({ clock24: e.target.value === '24' })}><option value="24">24-hour (17:30)</option><option value="12">12-hour (5:30 PM)</option></select></label>
+        <label class="field"><span>Calendar starts</span><input type="time" value=${s.dayStart} onChange=${(e) => save({ dayStart: e.target.value })} /></label>
         <label class="field"><span>Week ends on</span><select value=${String(s.weekEnd)} onChange=${(e) => save({ weekEnd: +e.target.value })}>${DAY_NAMES.map((n, i) => html`<option value=${String(i)}>${n}</option>`)}</select></label>
         <label class="field"><span>Time zone</span><input type="text" value=${s.tz} onChange=${(e) => { try { new Intl.DateTimeFormat('en', { timeZone: e.target.value }); save({ tz: e.target.value }); } catch { toast('Unknown time zone. Example: Asia/Kolkata', { kind: 'error' }); } }} /></label>
       </div>
@@ -372,6 +377,12 @@ export function SettingsView() {
       <h2>Backup</h2>
       <p class="muted">The server also keeps a daily copy of its database for 14 days, next to the data file.</p>
       <div class="row-btns"><a class="btn small" href="/api/export" download>Download a backup</a><label class="btn small ghost">Restore from a file<input type="file" accept="application/json,.json" hidden onChange=${restore} /></label></div>
+    </section>
+
+    <section class="settings-box">
+      <h2>Import</h2>
+      <p class="muted">Adds the tasks in an import file to what is already here. Nothing is replaced, and loading the same file twice adds nothing the second time.</p>
+      <div class="row-btns"><label class="btn small">Import a file<input type="file" accept="application/json,.json" hidden onChange=${importFile} /></label></div>
     </section>
   </div>`;
 }

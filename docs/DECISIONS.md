@@ -40,7 +40,8 @@ Based on Todoist's public help pages and feature lists (November 2026). Nothing 
 | Missed recurring tasks go overdue | They **roll forward quietly**; the miss is recorded in history, and the note about where you stopped stays on the task | Overdue piles punish a missed day twice |
 | One time per recurring task | **Several times a day**, each ticked off separately | Requested |
 | Editing a recurring date changes the series | Choose **just this one** or **whole series**; "Skip this time" | Requested |
-| Calendar layout | Month grid with meetings and a per-day load figure | Supports the overload warning |
+| Calendar layout | Same shape: day / 3 days / week / month, priority colours, future occurrences dashed, a Plan panel. Time blocks and meetings sit on the same grid, and each day shows its load | One place for the whole week |
+| Drag a sub-task by indenting | Drop a task on another to nest it, on an edge to reorder or un-nest | Same result, easier to hit |
 | Durations are display only | Estimates feed day load, "how long do I have", and block suggestions | |
 | Automatic reminders | Fire only while the app is open | No push service on a home server yet |
 
@@ -68,4 +69,4 @@ Time blocks (project-level, hard stops, planned against actual), calendar awaren
 - A phone companion app with offline capture. The server's revision-based sync was designed for it.
 - Push notifications when the app is closed.
 - Importing existing Todoist tasks.
-- Dragging time blocks on the timeline (they are edited in a form for now).
+- Dragging board columns to reorder them (use the arrows in "Rules and columns" for now).

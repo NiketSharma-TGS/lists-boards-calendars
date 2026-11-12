@@ -48,17 +48,22 @@ The script installs a systemd service that starts on boot and restarts on failur
 **New here:**
 
 1. **Domains** (Office, SDET, Game Dev, Gym to start). Each has its own page and its own P1 to P4. Each also has a weight. Today sorts by weight first and priority second, so an Office P2 sits above a Game Dev P1 and the two scales never mix.
-2. **Nested subtasks, any depth.** A parent completes itself when its last subtask is done, and reopens if you add or reopen one.
+2. **Nested subtasks, any depth.** Drop a task on another to make it a subtask; drop it near an edge to reorder or pull it back out. A parent completes itself when its last subtask is done, and reopens if you add or reopen one. On board cards, subtasks stay folded behind a count until you open them.
 3. **Lists and boards in the same window.** A domain page is made of sections; each section holds any mix of list blocks and board blocks. Any block can be switched between the two.
 4. **Move rules.** Each board has rules of the form "when a card enters this column, set that". New boards start with "entering To-Do sets the deadline to the end of the week" and "entering In Progress sets the start date to today". A rule never overwrites a value you set yourself unless you tick Overwrite, and every rule that runs offers Undo.
-5. **Time blocks.** Block time for a domain without choosing a task; pick the task when the block starts, or never. A hard stop ends the block on time and asks where you stopped. Planned against actual is logged per block and summed per domain per week.
-6. **Recurring tasks.** Several times a day (`every day at 9am, 2pm and 9pm`). Edit or move one occurrence without touching the series. A missed day is logged and the task simply shows up today again, with your "where I stopped" note, instead of going red.
-7. **Calendar awareness.** Paste a private iCal address (Google Calendar: "Secret address in iCal format"). Meetings appear in Today, the planner and the calendar, and a day whose meetings plus blocks exceed what a day holds is flagged, as are blocks that overlap a meeting.
-8. **Floor and ceiling.** Pin up to three tasks as the floor: the day you'd still call a good day. Mark others as stretch. When the floor is done the app says so.
-9. **How long do I have?** Choose 10 minutes to 2 hours and get tasks whose estimates fit, most important first. Long windows lead with deep work; short ones with quick wins. One click starts a block.
-10. **Morning check-in.** One screen: what happened since last time, what's fixed today, choose the floor, block the time.
+5. **One calendar.** Day, 3 days, week or month. Timed tasks, all-day tasks, time blocks, meetings and the coming occurrences of repeating tasks share one grid, coloured by priority. Drag anything to another day or time, drag its bottom edge to change its length, drag between the all-day row and the grid, or open the Plan panel and drag undated tasks in. Click an empty slot to add a task or a block there.
+6. **Time blocks.** Block time for a domain without choosing a task; pick the task when the block starts, or never. A hard stop ends the block on time and asks where you stopped. Planned against actual is logged per block and summed per domain per week.
+7. **Recurring tasks.** Several times a day (`every day at 9am, 2pm and 9pm`). Edit or move one occurrence without touching the series. A missed day is logged and the task simply shows up today again, with your "where I stopped" note, instead of going red.
+8. **Calendar awareness.** Paste a private iCal address (Google Calendar: "Secret address in iCal format"). Meetings appear in Today, the planner and the calendar, and a day whose meetings plus blocks exceed what a day holds is flagged, as are blocks that overlap a meeting.
+9. **Floor and ceiling.** Pin up to three tasks as the floor: the day you'd still call a good day. Mark others as stretch. When the floor is done the app says so.
+10. **How long do I have?** Choose 10 minutes to 2 hours and get tasks whose estimates fit, most important first. Long windows lead with deep work; short ones with quick wins. One click starts a block.
+11. **Morning check-in.** One screen: what happened since last time, what's fixed today, choose the floor, block the time.
 
 **Left out on purpose:** location reminders, the automations app, voice and AI features, table view, karma and streak goals, sharing and assignment, templates, email forwarding, third-party integrations. See `docs/DECISIONS.md`.
+
+## Importing
+
+Settings > Import adds the tasks in an import file to what is already there. Domains, sections and blocks are matched by name, move rules do not fire, and a task that was imported before is skipped, so loading the same file twice is harmless. The format is plain JSON: `{ "format": "lists-boards-import", "domains": [{ "name", "weight", "tasks", "blocks": [{ "name", "type", "columns", "tasks" }], "sections": [{ "name", "blocks" }] }], "inbox": [] }`, where a task is `{ "sourceId", "title", "description", "priority", "due", "dueTime", "recur", "deadline", "duration", "labels", "column", "children" }`.
 
 ## Typing a task
 
@@ -89,7 +94,7 @@ Pasting several lines makes one task per line.
 
 ## Keys
 
-`Q` add task · `/` search · `T` today · `I` inbox · `U` upcoming · `C` calendar · `B` time blocks · `H` how long · `M` morning check-in · `Esc` close
+`Q` add task · `/` search · `T` today · `I` inbox · `U` upcoming · `C` calendar · `B` day planner · `H` how long · `M` morning check-in · `Esc` close
 
 ## How it's built
 
@@ -99,7 +104,7 @@ server/   server.js  HTTP, static files, live updates, daily backup
           ops.js     every change to the data: rules, roll-ups, recurrence, blocks
           ics.js     calendar feeds
 shared/   dates, recurrence, quick add, filters, ordering (used by server and browser)
-public/   the web app (Preact + htm, vendored, no build)
+public/   the web app (Preact + htm, vendored, no build); js/calendar.js is the time grid and its dragging
 test/     node --test
 ```
 

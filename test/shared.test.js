@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { endOfWeek, addMonths, fmtDur, resolveRelative } from '../shared/dates.js';
+import { endOfWeek, addMonths, fmtDur, fmtTime, resolveRelative, setClock24 } from '../shared/dates.js';
 import { onOrAfter, nextAfter, advance, describe } from '../shared/recur.js';
 import { parseQuickAdd, parseRecur, parseDate } from '../shared/quickadd.js';
 import { compileFilter } from '../shared/filter.js';
@@ -55,7 +55,11 @@ test('recurrence text', () => {
   assert.equal(parseRecur('every other week').interval, 2);
   assert.equal(parseRecur('every 5th').monthDay, 5);
   assert.equal(parseRecur('every blue moon'), null);
-  assert.equal(describe(parseRecur('every mon, thu at 7am')), 'Every Mon, Thu at 7 AM');
+  assert.equal(describe(parseRecur('every mon, thu at 7am')), 'Every Mon, Thu at 07:00');
+  setClock24(false);
+  assert.equal(fmtTime('17:30'), '5:30 PM');
+  setClock24(true);
+  assert.equal(fmtTime('17:30'), '17:30');
 });
 
 test('recurrence dates', () => {

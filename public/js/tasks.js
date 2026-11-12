@@ -21,6 +21,28 @@ let dragId = null;
 export const getDragId = () => dragId;
 export const setDragId = (id) => { dragId = id; };
 
+// Where a dragged task would land on the row under the pointer: dropping on
+// the middle of a task nests it, dropping near an edge reorders.
+export function dropZone(e, depth = 0) {
+  const r = e.currentTarget.getBoundingClientRect();
+  const y = (e.clientY - r.top) / Math.max(1, r.height);
+  if (y < 0.28) return 'before';
+  if (y > 0.72) return e.clientX > r.left + depth * 26 + 110 ? 'child' : 'after';
+  return 'child';
+}
+export function dropArgs(zone, id, t) {
+  if (zone === 'child') {
+    collapsed.delete(t.id);
+    return { id, parentId: t.id };
+  }
+  const home = t.parentId ? { parentId: t.parentId } : t.blockId ? { blockId: t.blockId, columnId: t.columnId } : { inbox: true };
+  if (zone === 'before') return { id, ...home, beforeId: t.id };
+  const same = (x) => !x.parentId && (x.blockId || null) === (t.blockId || null) && (x.columnId || null) === (t.columnId || null) && (x.domainId || null) === (t.domainId || null);
+  const sibs = (t.parentId ? sel.children(t.parentId) : sel.tasks().filter(same).sort((a, b) => (a.position || 0) - (b.position || 0))).filter((x) => x.id !== id);
+  const next = sibs[sibs.findIndex((x) => x.id === t.id) + 1];
+  return { id, ...home, beforeId: next ? next.id : undefined };
+}
+
 export function openTask(id) {
   state.ui.taskId = id;
   state.ui.pop = null;
@@ -172,7 +194,7 @@ export function dueClass(t) {
   if (diffDays(t.due, state.today) === 1) return 'soon';
   return '';
 }
-export function Meta({ task: t, showDomain, showParent, hideDue }) {
+export function Meta({ task: t, showDomain, showParent, hideDue, hideSubs }) {
   const prog = sel.progress(t.id);
   const domain = t.domainId ? sel.domain(t.domainId) : null;
   const parent = showParent && t.parentId ? sel.task(t.parentId) : null;
@@ -188,7 +210,7 @@ export function Meta({ task: t, showDomain, showParent, hideDue }) {
   } else if (t.dueTime && hideDue) bits.push(html`<span class="chip">${fmtTime(t.dueTime)}</span>`);
   if (t.deadline) bits.push(html`<span class=${'chip deadline ' + (dl < 0 ? 'late' : dl <= 2 ? 'soon' : '')} title="Deadline"><${Icon} name="flag" size=${13} />${fmtDate(t.deadline, state.today)}</span>`);
   if (t.duration) bits.push(html`<span class="chip" title="Estimate"><${Icon} name="clock" size=${13} />${fmtDur(t.duration)}</span>`);
-  if (prog.total) bits.push(html`<span class="chip" title="Subtasks"><${Icon} name="sub" size=${13} />${prog.done}/${prog.total}</span>`);
+  if (prog.total && !hideSubs) bits.push(html`<span class="chip" title="Subtasks"><${Icon} name="sub" size=${13} />${prog.done}/${prog.total}</span>`);
   if (comments) bits.push(html`<span class="chip"><${Icon} name="comment" size=${13} />${comments}</span>`);
   for (const l of t.labels || []) bits.push(html`<span class="chip label">@${l}</span>`);
   if (t.recur && t.rolledAt === state.today && t.missed) bits.push(html`<span class="chip faint" title=${'Rolled forward from ' + fmtLong(t.rolledFrom || t.due)}>picked back up</span>`);
@@ -210,26 +232,25 @@ export function TaskRow({ task: t, depth = 0, ctx = {} }) {
   const kids = sel.children(t.id);
   const openKids = kids.filter((k) => !k.completedAt);
   const shown = ctx.flat ? expandedFlat.has(t.id) : !collapsed.has(t.id);
-  const [over, setOver] = useState(false);
+  const [over, setOver] = useState(null);
   const tier = ctx.tierBadge ? sel.tier(t.id) : null;
   const title = (t.instance && t.instance.title) || t.title;
   const adding = state.ui.addUnder === t.id;
   const visibleKids = t.completedAt ? kids : kids.filter((k) => !k.completedAt || k._showDone);
   const doneKids = kids.length - openKids.length;
   return html`<div class="task-wrap">
-    <div class=${'task' + (t.completedAt ? ' is-done' : '') + (over ? ' drop' : '')} style=${{ paddingLeft: 4 + depth * 26 + 'px' }}
+    <div class=${'task' + (t.completedAt ? ' is-done' : '') + (over ? ' drop-' + over : '')} style=${{ paddingLeft: 4 + depth * 26 + 'px', '--indent': 30 + depth * 26 + 'px' }}
       draggable=${!ctx.noDrag}
       onDragStart=${(e) => { dragId = t.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', t.id); e.stopPropagation(); }}
       onDragEnd=${() => { dragId = null; }}
-      onDragOver=${(e) => { if (dragId && dragId !== t.id && !ctx.noDrop) { e.preventDefault(); e.stopPropagation(); setOver(true); } }}
-      onDragLeave=${() => setOver(false)}
+      onDragOver=${(e) => { if (dragId && dragId !== t.id && !ctx.noDrop) { e.preventDefault(); e.stopPropagation(); setOver(dropZone(e, depth)); } }}
+      onDragLeave=${() => setOver(null)}
       onDrop=${(e) => {
-        setOver(false);
+        setOver(null);
         if (!dragId || dragId === t.id || ctx.noDrop) return;
         e.preventDefault(); e.stopPropagation();
         const id = dragId; dragId = null;
-        const args = t.parentId ? { id, parentId: t.parentId, beforeId: t.id } : t.blockId ? { id, blockId: t.blockId, columnId: t.columnId, beforeId: t.id } : { id, inbox: true, beforeId: t.id };
-        op('task.move', args);
+        op('task.move', dropArgs(dropZone(e, depth), id, t));
       }}>
       ${kids.length
         ? html`<button class=${'twist' + (shown ? ' open' : '')} aria-label=${shown ? 'Hide subtasks' : 'Show subtasks'} onClick=${() => toggleCollapse(t.id, ctx.flat)}><${Icon} name="chevron" size=${14} /></button>`

@@ -49,6 +49,10 @@ const practice = run('task.add', { title: 'One practice exercise', domainId: sde
 run('task.update', { id: practice.id, patch: { stopNote: 'Chapter 4, exercise 2. Next: page-object fixtures.' } });
 run('task.add', { title: 'Write API tests for the login flow', domainId: sdet.id, priority: 2, due: addDays(today, 2), duration: 90, deadline: addDays(today, 4) });
 run('task.add', { title: 'Read the chapter on test doubles', domainId: sdet.id, priority: 3, duration: 20 });
+run('task.add', { title: 'Selenium WebDriver course', domainId: sdet.id, priority: 1, recur: parseRecur('every day at 9am'), duration: 90 });
+run('task.add', { title: 'Handle checkboxes and radio buttons', domainId: sdet.id, priority: 1, due: today, dueTime: '11:30', duration: 60 });
+run('task.add', { title: 'Mock interview practice', domainId: sdet.id, priority: 3, due: addDays(today, 1), dueTime: '11:30', duration: 60 });
+run('task.add', { title: 'Sketching practice', domainId: game.id, priority: 2, due: addDays(today, 1), dueTime: '12:00', duration: 60 });
 
 // Game Dev: sections with lists and boards side by side
 const gameplay = run('section.save', { domainId: game.id, name: 'Gameplay' });

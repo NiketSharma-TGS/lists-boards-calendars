@@ -196,7 +196,7 @@ export function LoadCard({ date, compact }) {
   </div>`;
 }
 
-function WeekCard() {
+export function WeekCard() {
   const weekStart = startOfWeek(state.today, sel.settings().weekEnd);
   const weekEnd = addDays(weekStart, 6);
   const tbs = [...state.docs.timeblocks.values()].filter((b) => b.date >= weekStart && b.date <= weekEnd && b.status !== 'skipped');
@@ -215,89 +215,6 @@ function WeekCard() {
         <div class="pva-row"><span class="faint">Actual</span><div class="bar"><span style=${{ width: (r.actual / max) * 100 + '%', background: r.d.color }}></span></div><span>${fmtDur(r.actual) || '0m'}</span></div>
       </div>
     </div>`)}
-  </div>`;
-}
-
-// ---------- planner ----------
-function BlockBox({ b, top, height }) {
-  const d = b.domainId ? sel.domain(b.domainId) : null;
-  const task = b.taskId ? sel.task(b.taskId) : null;
-  const small = height < 54;
-  return html`<div class=${'tb ' + b.status + (small ? ' small' : '')} style=${{ top: top + 'px', height: Math.max(26, height - 2) + 'px', '--c': d ? d.color : '#8a8f98' }} onClick=${(e) => { e.stopPropagation(); openBlockForm({ block: b }); }}>
-    <div class="tb-top">
-      <span class="tb-title">${task ? task.title : b.title}</span>
-      ${b.hardStop ? html`<span class="tb-tag" title="Hard stop">hard stop</span>` : null}
-      <span class="grow"></span>
-      ${b.status === 'planned' ? html`<button class="btn tiny" onClick=${(e) => { e.stopPropagation(); op('tb.start', { id: b.id }); }}><${Icon} name="play" size=${11} fill=${true} /> Start</button>` : null}
-      ${b.status === 'running' ? html`<span class="tb-live">running</span>` : null}
-    </div>
-    ${small ? null : html`<div class="tb-sub">${range(b)} · ${fmtDur(b.len)}${task ? '' : d ? ' · no task picked' : ''}${b.status === 'done' ? ` · actual ${fmtDur(b.actualMin) || '0m'}` : ''}</div>`}
-    ${!small && b.note ? html`<div class="tb-note"><${Icon} name="note" size=${12} />${b.note}</div>` : null}
-  </div>`;
-}
-
-export function PlanView({ date: arg }) {
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(arg || '') ? arg : state.today;
-  useEffect(() => { loadCalendar(date, date); }, [date, state.rev > 0]);
-  const [, setTick] = useState(0);
-  useEffect(() => { const t = setInterval(() => setTick((n) => n + 1), 60000); return () => clearInterval(t); }, []);
-  const s = sel.settings();
-  const blocks = sel.blocksOn(date);
-  const events = sel.eventsOn(date);
-  const timed = events.filter((e) => !e.allDay);
-  const first = Math.min(toMin(s.dayStart) ?? 420, ...blocks.map((b) => b.start), ...timed.map((e) => e.startMin));
-  const startMin = Math.floor(first / 60) * 60;
-  const endMin = Math.max((toMin(s.dayEnd) || 1440), ...blocks.map((b) => b.start + b.len));
-  const PX = 1.1;
-  const hours = [];
-  for (let m = startMin; m < endMin; m += 60) hours.push(m);
-  const now = nowMin();
-  const onLane = (e) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const min = startMin + Math.round((e.clientY - rect.top) / PX / 15) * 15;
-    openBlockForm({ date, start: Math.max(0, Math.min(1425, min)) });
-  };
-  const planned = blocks.filter((b) => b.status !== 'skipped').reduce((n, b) => n + b.len, 0);
-  const actual = blocks.reduce((n, b) => n + (b.actualMin || 0), 0);
-  return html`<div class="page wide">
-    <header class="page-head">
-      <div>
-        <h1>Time blocks</h1>
-        <div class="muted">${date === state.today ? 'Today, ' : ''}${DAY_NAMES[dow(date)]} ${fmtLong(date).split(' ').slice(1).join(' ')}. Block time for a domain first; pick the task when you start.</div>
-      </div>
-      <div class="head-actions">
-        <div class="seg"><button aria-label="Previous day" onClick=${() => go('plan/' + addDays(date, -1))}>‹</button><button onClick=${() => go('plan')}>Today</button><button aria-label="Next day" onClick=${() => go('plan/' + addDays(date, 1))}>›</button></div>
-        <button class="btn primary" onClick=${() => openBlockForm({ date })}><${Icon} name="plus" size=${15} /> Add block</button>
-      </div>
-    </header>
-    <div class="plan-grid">
-      <div class="timeline-wrap">
-        ${events.filter((e) => e.allDay).map((e) => html`<div class="allday" key=${e.id}>All day: ${e.title}</div>`)}
-        <div class="timeline" style=${{ height: (endMin - startMin) * PX + 'px' }}>
-          ${hours.map((m) => html`<div class="hour" key=${m} style=${{ top: (m - startMin) * PX + 'px' }}><span>${fmtTime(fromMin(m))}</span></div>`)}
-          <div class="lane cal-lane" aria-label="Calendar">
-            ${timed.map((e) => html`<div class=${'ev' + (e.free ? ' free' : '') + (e.endMin - e.startMin < 45 ? ' short' : '')} key=${e.id} style=${{ top: (e.startMin - startMin) * PX + 'px', height: Math.max(18, (e.endMin - e.startMin) * PX - 2) + 'px' }} title=${e.title}><span class="ev-title">${e.title}</span><span class="faint">${fmtTime(fromMin(e.startMin))}</span></div>`)}
-          </div>
-          <div class="lane block-lane" aria-label="Time blocks" onClick=${onLane}>
-            ${blocks.map((b) => html`<${BlockBox} key=${b.id} b=${b} top=${(b.start - startMin) * PX} height=${b.len * PX} />`)}
-          </div>
-          ${date === state.today && now >= startMin && now <= endMin ? html`<div class="now-line" style=${{ top: (now - startMin) * PX + 'px' }}></div>` : null}
-        </div>
-        <div class="lane-labels"><span>Calendar</span><span>Blocks (click an empty slot to add)</span></div>
-      </div>
-      <div class="rail">
-        <${LoadCard} date=${date} />
-        <div class="card-box">
-          <h3>This day</h3>
-          <div class="load-line"><span>Planned</span><span>${fmtDur(planned) || '0m'}</span></div>
-          <div class="load-line"><span>Actual</span><span>${fmtDur(actual) || '0m'}</span></div>
-          ${blocks.filter((b) => b.status === 'done').map((b) => html`<div class="faint small-note" key=${b.id}>${b.title}: ${fmtDur(b.actualMin) || '0m'} of ${fmtDur(b.len)}${b.autoStopped ? ', stopped by the hard stop' : ''}</div>`)}
-        </div>
-        <${WeekCard} />
-        ${state.cal.errors.map((er) => html`<div class="card-box warn" key=${er.id}><div class="warn-line"><${Icon} name="alert" size=${15} />Calendar "${er.name}" could not be read: ${er.error}</div></div>`)}
-        ${(s.calendars || []).length === 0 ? html`<div class="card-box"><div class="faint">No calendar connected. Add your calendar's private iCal address in Settings to see meetings here.</div><button class="btn small" onClick=${() => go('settings')}>Open Settings</button></div>` : null}
-      </div>
-    </div>
   </div>`;
 }
 

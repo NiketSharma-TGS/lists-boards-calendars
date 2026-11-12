@@ -197,3 +197,55 @@ test('calendar feed: time zones, weekly repeats, exceptions and all-day events',
     '2026-11-12 Holiday all-day',
   ]);
 });
+
+test('a repeating parent keeps half-done subtasks, and restarts a finished checklist', () => {
+  const { run, domain, task } = setup();
+  const course = run('task.add', { title: 'Course', domainId: domain.id, recur: parseRecur('every day at 9am') }).result;
+  const a = run('task.add', { title: 'Video 1', parentId: course.id }).result;
+  const b = run('task.add', { title: 'Video 2', parentId: course.id }).result;
+  run('task.complete', { id: a.id });
+  run('task.complete', { id: course.id });
+  assert.ok(task(a.id).completedAt, 'progress on an unfinished list survives the daily tick');
+  assert.equal(task(course.id).due, '2026-11-12');
+  run('task.complete', { id: b.id });
+  assert.equal(task(a.id).completedAt, null, 'a finished checklist starts again');
+  assert.equal(task(course.id).due, '2026-11-13');
+});
+
+test('import merges by name, keeps hierarchy, skips what it has seen, and fires no rules', () => {
+  const { run, store, board, task } = setup();
+  const file = {
+    format: 'lists-boards-import', source: 'todoist', dropEmptyDomains: ['Nowhere'],
+    domains: [
+      { name: 'game dev', blocks: [{ name: 'Combat', type: 'board', tasks: [
+        { sourceId: 's1', title: 'Sprint', column: 'To-Do', priority: 1, labels: ['Level Design'], children: [{ sourceId: 's2', title: 'Camera', children: [{ sourceId: 's3', title: 'Zoom' }] }] },
+        { sourceId: 's4', title: 'Shipped', column: 'Done' },
+      ] }] },
+      { name: 'Side Quests', weight: 2, sections: [{ name: 'Old', blocks: [{ name: 'Graveyard', tasks: [
+        { sourceId: 's5', title: 'Walk', recur: 'every Mon, Thu at 19:30', due: '2026-11-02', dueTime: '17:00', duration: '45m' },
+        { sourceId: 's6', title: 'Odd', recur: 'every last workday' },
+      ] }] }] },
+    ],
+    inbox: [{ sourceId: 's7', title: 'Loose', due: '2026-11-14', dueTime: '11:00' }],
+  };
+  const out = run('import.merge', file).result;
+  assert.equal(out.added, 7);
+  const by = (sid) => store.all('tasks').find((t) => t.sourceId === sid);
+  assert.equal(by('s1').blockId, board.id, 'the existing board was reused');
+  assert.equal(by('s1').deadline, null, 'the To-Do rule did not fire');
+  assert.deepEqual(by('s1').labels, ['Level-Design']);
+  assert.equal(by('s3').parentId, by('s2').id);
+  assert.ok(by('s4').completedAt, 'a card in a Done column arrives completed');
+  assert.equal(by('s5').due, '2026-11-12', 'a stale repeating date starts from today');
+  assert.equal(by('s5').dueTime, '19:30');
+  assert.equal(by('s5').duration, 45);
+  assert.equal(store.all('occs').length, 0, 'nothing is logged as missed');
+  assert.equal(out.notConverted.length, 1);
+  assert.match(by('s6').description, /every last workday/);
+  assert.equal(by('s7').domainId, null);
+  assert.equal(store.all('domains').length, 2);
+  const again = run('import.merge', file).result;
+  assert.equal(again.added, 0);
+  assert.equal(again.skipped, 7);
+  assert.equal(store.all('tasks').length, 7);
+});

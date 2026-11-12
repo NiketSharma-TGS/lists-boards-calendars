@@ -11,6 +11,7 @@ export const DEFAULT_SETTINGS = {
   dayEnd: '24:00',
   floorMax: 3,
   defaultBlockLen: 60,
+  clock24: true,
   calendars: [],
 };
 

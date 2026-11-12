@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { addDays, nowMinIn, todayIn, resolveRelative, describeRelative, fmtLong } from '../shared/dates.js';
 import { advance, between, onOrAfter } from '../shared/recur.js';
 import { DEFAULT_SETTINGS } from '../shared/logic.js';
+import { parseRecur, parseDuration } from '../shared/quickadd.js';
 
 const newId = () => randomUUID().replace(/-/g, '').slice(0, 16);
 const TRASH_DAYS = 30;
@@ -20,6 +21,7 @@ export function createOps(store, clock = {}) {
   const today = () => (clock.today ? clock.today() : todayIn(settings().tz, new Date(nowMs())));
   const nowMin = () => (clock.nowMin ? clock.nowMin() : nowMinIn(settings().tz, new Date(nowMs())));
   let effects = [];
+  let quietRules = false; // an import must not trigger move rules
 
   // ---------- lookups ----------
   const liveTasks = () => store.all('tasks').filter((t) => !t.deletedAt);
@@ -67,7 +69,7 @@ export function createOps(store, clock = {}) {
 
   // ---------- board rules ----------
   function applyRules(t, fromCol, toCol) {
-    if (!t.blockId || !toCol || fromCol === toCol) return;
+    if (quietRules || !t.blockId || !toCol || fromCol === toCol) return;
     const rules = store.all('rules').filter((r) => r.blockId === t.blockId && r.enabled !== false && r.to === toCol && (r.from === '*' || r.from === fromCol));
     const prev = {};
     const notes = [];
@@ -156,7 +158,10 @@ export function createOps(store, clock = {}) {
     }
     t.rolledAt = null;
     store.put('tasks', t);
-    resetChildren(t);
+    // A finished checklist starts again next time. A half-done one is ongoing
+    // work, so its ticks are left alone.
+    const kids = descendants(t.id).filter((d) => !d.deletedAt && !d.recur);
+    if (kids.length && kids.every((d) => d.completedAt)) resetChildren(t);
     store.log(status, t.id, t.title);
   }
   function completeTask(t, opts = {}) {
@@ -291,7 +296,6 @@ export function createOps(store, clock = {}) {
       t.instance = null;
       t.dueTime = times[0] || t.baseTime || null;
       store.put('tasks', t);
-      resetChildren(t);
       changed = true;
     }
     const now = nowMs();
@@ -802,6 +806,102 @@ export function createOps(store, clock = {}) {
         if (t) completeTask(t, {});
       }
       return b;
+    },
+
+    // ----- import -----
+    // Adds an import file to what is already here. Domains, sections and
+    // blocks are matched by name; a task that was imported before (same
+    // sourceId) is skipped, so running the same file twice changes nothing.
+    'import.merge'(data) {
+      if (!data || data.format !== 'lists-boards-import') throw new Error('not a Lists & Boards import file');
+      const out = { added: 0, skipped: 0, domains: [], removedDomains: [], notConverted: [] };
+      const seen = new Set(store.all('tasks').filter((t) => t.sourceId).map((t) => t.sourceId));
+      const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+      const day = today();
+      const addTree = (src, home) => {
+        let id = null;
+        if (src.sourceId && seen.has(src.sourceId)) {
+          out.skipped++;
+          id = store.all('tasks').find((t) => t.sourceId === src.sourceId && !t.deletedAt)?.id || null;
+          if (!id) return;
+        } else {
+          const args = { ...home, title: src.title, description: src.description || '', priority: src.priority || 4, deadline: src.deadline || null, labels: (src.labels || []).map((l) => String(l).trim().replace(/\s+/g, '-')) };
+          if (src.duration) args.duration = typeof src.duration === 'number' ? src.duration : parseDuration(String(src.duration));
+          let recur = null;
+          if (src.recur) {
+            recur = typeof src.recur === 'string' ? parseRecur(src.recur) : src.recur;
+            if (!recur) {
+              out.notConverted.push({ title: src.title, repeat: src.recur });
+              args.description = (args.description ? args.description + '\n' : '') + 'Repeated in the old app as: ' + src.recur;
+            }
+          }
+          const stale = recur && src.due && src.due < day;
+          if (src.due && !stale) args.due = src.due;
+          if (src.dueTime) args.dueTime = src.dueTime;
+          if (recur) args.recur = recur;
+          const t = ops['task.add'](args);
+          if (recur && !stale && src.dueTime && t.dueTime !== src.dueTime) {
+            t.dueTime = src.dueTime;
+          }
+          t.sourceId = src.sourceId || null;
+          t.source = data.source || 'import';
+          store.put('tasks', t);
+          if (src.sourceId) seen.add(src.sourceId);
+          out.added++;
+          id = t.id;
+        }
+        for (const child of src.children || []) addTree(child, { parentId: id });
+      };
+      const findBlock = (domain, sectionId, spec) => {
+        const hit = store.all('blocks').find((b) => b.domainId === domain.id && (b.sectionId || null) === (sectionId || null) && same(b.name, spec.name));
+        if (hit) return hit;
+        return ops['block.save']({ domainId: domain.id, sectionId, name: spec.name, type: spec.type === 'board' ? 'board' : 'list', columns: spec.columns });
+      };
+      const fillBlock = (block, spec) => {
+        for (const src of spec.tasks || []) {
+          const col = block.type === 'board' ? (block.columns.find((c) => same(c.name, src.column)) || block.columns[0]).id : undefined;
+          addTree(src, { blockId: block.id, columnId: col });
+        }
+      };
+      quietRules = true;
+      try {
+        for (const d of data.domains || []) {
+          let domain = store.all('domains').find((x) => same(x.name, d.name));
+          if (!domain) domain = ops['domain.save']({ name: d.name, color: d.color, weight: d.weight });
+          else if (d.weight && domain.weight !== d.weight) {
+            domain.weight = d.weight;
+            store.put('domains', domain);
+          }
+          out.domains.push(domain.name);
+          for (const src of d.tasks || []) addTree(src, { domainId: domain.id });
+          for (const b of d.blocks || []) fillBlock(findBlock(domain, null, b), b);
+          for (const s of d.sections || []) {
+            const section = store.all('sections').find((x) => x.domainId === domain.id && same(x.name, s.name)) || ops['section.save']({ domainId: domain.id, name: s.name });
+            for (const b of s.blocks || []) fillBlock(findBlock(domain, section.id, b), b);
+          }
+        }
+        // An empty catch-all list next to imported blocks is only clutter;
+        // it comes back by itself the next time a task needs it.
+        for (const name of out.domains) {
+          const domain = store.all('domains').find((x) => same(x.name, name));
+          const mine = store.all('blocks').filter((b) => b.domainId === domain.id);
+          for (const b of mine) {
+            if (mine.length > 1 && b.name === 'Tasks' && b.type === 'list' && !store.all('tasks').some((t) => t.blockId === b.id)) store.del('blocks', b.id);
+          }
+        }
+        for (const src of data.inbox || []) addTree(src, {});
+        for (const name of data.dropEmptyDomains || []) {
+          const domain = store.all('domains').find((x) => same(x.name, name));
+          if (domain && !store.all('tasks').some((t) => t.domainId === domain.id && !t.deletedAt)) {
+            ops['domain.delete']({ id: domain.id });
+            out.removedDomains.push(domain.name);
+          }
+        }
+      } finally {
+        quietRules = false;
+      }
+      store.log('import', null, `${out.added} tasks added, ${out.skipped} already here`);
+      return out;
     },
 
     // ----- the day: floor, stretch and the morning check-in -----

@@ -2,9 +2,9 @@
 // side in one window, each board with its own move rules.
 
 import { html, useState } from '/vendor/preact-htm.js';
-import { state, op, sel, go, toast } from './store.js';
+import { state, notify, op, sel, go, toast } from './store.js';
 import { Icon, openMenu, openModal, closeModal, askText, askConfirm, Empty } from './ui.js';
-import { TaskRow, AddTask, Meta, Check, openTask, taskMenu, getDragId, setDragId } from './tasks.js';
+import { TaskRow, AddTask, Meta, Check, openTask, taskMenu, getDragId, setDragId, dropZone, dropArgs } from './tasks.js';
 import { addDays, startOfWeek, fmtDur, describeRelative } from '/shared/dates.js';
 import { domainCompare, isOpen, PRIORITY_COLORS } from '/shared/logic.js';
 import { DOMAIN_COLORS } from './views.js';
@@ -137,26 +137,45 @@ function ListBlock({ block }) {
   </div>`;
 }
 
+// Subtasks stay folded on a card until you open them.
+const openCards = new Set(JSON.parse(localStorage.getItem('lb.openCards') || '[]'));
+function toggleCard(id) {
+  openCards.has(id) ? openCards.delete(id) : openCards.add(id);
+  localStorage.setItem('lb.openCards', JSON.stringify([...openCards]));
+  notify();
+}
+function CardSubs({ parentId, depth = 0 }) {
+  return sel.children(parentId).map((k) => html`<div key=${k.id}>
+    <div class=${'card-sub' + (k.completedAt ? ' is-done' : '')} style=${{ paddingLeft: depth * 16 + 'px' }} onClick=${(e) => { e.stopPropagation(); openTask(k.id); }}>
+      <${Check} task=${k} small=${true} />
+      <span class="grow">${k.title}${(k.labels || []).map((l) => html` <span class="chip label">@${l}</span>`)}</span>
+    </div>
+    <${CardSubs} parentId=${k.id} depth=${depth + 1} />
+  </div>`);
+}
 function Card({ task: t, block }) {
-  const [over, setOver] = useState(false);
+  const [over, setOver] = useState(null);
   const prog = sel.progress(t.id);
-  return html`<div class=${'card' + (t.completedAt ? ' is-done' : '') + (over ? ' drop' : '')} draggable="true" tabindex="0"
+  const open = openCards.has(t.id);
+  return html`<div class=${'card' + (t.completedAt ? ' is-done' : '') + (over ? ' drop-' + over : '')} draggable="true" tabindex="0"
     onDragStart=${(e) => { setDragId(t.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', t.id); }}
     onDragEnd=${() => setDragId(null)}
-    onDragOver=${(e) => { const id = getDragId(); if (id && id !== t.id) { e.preventDefault(); e.stopPropagation(); setOver(true); } }}
-    onDragLeave=${() => setOver(false)}
-    onDrop=${(e) => { setOver(false); const id = getDragId(); if (!id || id === t.id) return; e.preventDefault(); e.stopPropagation(); setDragId(null); op('task.move', { id, blockId: block.id, columnId: t.columnId, beforeId: t.id }); }}
+    onDragOver=${(e) => { const id = getDragId(); if (id && id !== t.id) { e.preventDefault(); e.stopPropagation(); setOver(dropZone(e)); } }}
+    onDragLeave=${() => setOver(null)}
+    onDrop=${(e) => { setOver(null); const id = getDragId(); if (!id || id === t.id) return; e.preventDefault(); e.stopPropagation(); setDragId(null); const zone = dropZone(e); if (zone === 'child') { openCards.add(t.id); } op('task.move', dropArgs(zone, id, t)); }}
     onClick=${() => openTask(t.id)} onKeyDown=${(e) => { if (e.key === 'Enter') openTask(t.id); }}>
     <div class="card-top">
       <${Check} task=${t} small=${true} />
-      <span class="card-title">${t.title}</span>
+      <span class="card-title">${t.title}${t.description ? html`<span class="card-desc">${t.description}</span>` : null}</span>
       <button class="icon-btn small card-more" aria-label="More actions" onClick=${(e) => { e.stopPropagation(); taskMenu(e, t); }}><${Icon} name="more" size=${14} /></button>
     </div>
     <div class="card-meta">
       <span class="chip"><span class="dot" style=${{ background: PRIORITY_COLORS[t.priority || 4] }}></span>P${t.priority || 4}</span>
-      <${Meta} task=${t} />
+      ${prog.total ? html`<button class=${'chip sub-toggle' + (open ? ' open' : '')} aria-expanded=${open} title=${open ? 'Hide subtasks' : 'Show subtasks'} onClick=${(e) => { e.stopPropagation(); toggleCard(t.id); }}><${Icon} name="sub" size=${13} />${prog.done}/${prog.total}<${Icon} name="down" size=${12} /></button>` : null}
+      <${Meta} task=${t} hideSubs=${true} />
     </div>
-    ${prog.total ? html`<div class="bar thin"><span style=${{ width: Math.round((prog.done / prog.total) * 100) + '%' }}></span></div>` : null}
+    ${prog.total && !open ? html`<div class="bar thin"><span style=${{ width: Math.round((prog.done / prog.total) * 100) + '%' }}></span></div>` : null}
+    ${open ? html`<div class="card-subs"><${CardSubs} parentId=${t.id} /></div>` : null}
     ${t.stopNote && !t.completedAt ? html`<div class="stop-note"><${Icon} name="note" size=${13} />${t.stopNote}</div>` : null}
   </div>`;
 }
